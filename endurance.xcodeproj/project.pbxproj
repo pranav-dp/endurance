@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		811997E82F2B635A005ABF86 /* endurance.app in Resources */ = {isa = PBXBuildFile; fileRef = 811997E72F2B635A005ABF86 /* endurance.app */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		811997E72F2B635A005ABF86 /* endurance.app */ = {isa = PBXFileReference; lastKnownFileType = wrapper.application; path = endurance.app; sourceTree = "<group>"; };
 		81A1A0652F2B3FB80075D6E6 /* endurance.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = endurance.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +37,7 @@
 		81A1A05C2F2B3FB80075D6E6 = {
 			isa = PBXGroup;
 			children = (
+				811997E72F2B635A005ABF86 /* endurance.app */,
 				81A1A0672F2B3FB80075D6E6 /* endurance */,
 				81A1A0662F2B3FB80075D6E6 /* Products */,
 			);
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				811997E82F2B635A005ABF86 /* endurance.app in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -253,7 +260,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 392JB73SBB;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -285,7 +292,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 392JB73SBB;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;

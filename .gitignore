@@ -1,0 +1,57 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+Package.resolved
+*.xcworkspace
+
+# CocoaPods (if ever used)
+Pods/
+Podfile.lock
+
+# Carthage (if ever used)
+Carthage/Build/
+Carthage/Checkouts/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Archives & Exports
+*.app
+*.dmg
+*.zip
+*.pkg
+
+# User-specific
+xcuserdata/
+*.xcscmblueprint
+
+# Secrets / Environment
+.env
+*.pem
+*.p12
+*.mobileprovision
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Provisioning Profiles
+*.provisionprofile
