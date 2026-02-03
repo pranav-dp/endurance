@@ -1,6 +1,6 @@
 # Endurance
 
-**A free, open-source menu bar timer for macOS.**
+**A free, open-source Productivity tool for macOS.**
 
 I got frustrated with paid timer apps that charge ₹1999 a year for basic functionality.
 
@@ -19,7 +19,7 @@ So I built my own. It's free, open-source, and minimal.
 | Feature | Description |
 |---------|-------------|
 | **Menu Bar Native** | Lives in your menu bar, one click away |
-| **Live Countdown** | See remaining time right in the menu bar |
+| **Pomodoro Countdown** | See remaining time right in the menu bar |
 | **Custom Presets** | Create, save, and organize your own timer configurations |
 | **Session Tracking** | Beautiful charts showing your focus history |
 | **Global Hotkey** | `⌘ + Shift + T` to open from anywhere |
