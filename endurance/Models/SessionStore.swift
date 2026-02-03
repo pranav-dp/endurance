@@ -75,6 +75,23 @@ final class SessionStore {
     var totalSessions: Int = 0
     var completionRate: Double = 0
     
+    // Daily Goal (persisted)
+    var dailyGoalMinutes: Int {
+        get { 
+            let val = UserDefaults.standard.integer(forKey: "dailyGoalMinutes")
+            return val > 0 ? val : 120  // Default 2 hours
+        }
+        set { 
+            UserDefaults.standard.set(newValue, forKey: "dailyGoalMinutes")
+        }
+    }
+    
+    var dailyProgress: Double {
+        guard dailyGoalMinutes > 0 else { return 0 }
+        let todayMinutes = (todayStats?.totalFocusTime ?? 0) / 60
+        return min(1.0, todayMinutes / Double(dailyGoalMinutes))
+    }
+    
     func setModelContext(_ context: ModelContext) {
         self.modelContext = context
         refreshStats()
@@ -84,6 +101,7 @@ final class SessionStore {
     func createSession(duration: TimeInterval, presetName: String) -> TimerSession {
         let session = TimerSession(duration: duration, presetName: presetName)
         modelContext?.insert(session)
+        try? modelContext?.save()
         return session
     }
     
@@ -95,6 +113,12 @@ final class SessionStore {
     
     func cancelSession(_ session: TimerSession) {
         session.cancel()
+        try? modelContext?.save()
+        refreshStats()
+    }
+    
+    func deleteSession(_ session: TimerSession) {
+        modelContext?.delete(session)
         try? modelContext?.save()
         refreshStats()
     }

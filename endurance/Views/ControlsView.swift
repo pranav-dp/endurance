@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ControlsView: View {
     @Bindable var timerManager: TimerManager
+    var accentColor: Color = Theme.accentGlow
     
     @Environment(\.colorScheme) private var colorScheme
     
@@ -32,7 +33,7 @@ struct ControlsView: View {
                 ZStack {
                     // Glow
                     Circle()
-                        .fill(Theme.accentGlow.opacity(0.25))
+                        .fill(accentColor.opacity(0.25))
                         .frame(width: 60, height: 60)
                         .blur(radius: 8)
                     
@@ -41,7 +42,7 @@ struct ControlsView: View {
                         .fill(.ultraThinMaterial)
                         .overlay(
                             Circle()
-                                .stroke(Theme.accentGlow.opacity(0.4), lineWidth: 1)
+                                .stroke(accentColor.opacity(0.4), lineWidth: 1)
                         )
                         .frame(width: 56, height: 56)
                     
