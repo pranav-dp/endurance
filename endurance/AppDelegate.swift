@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
     private var lastWindowPosition: NSPoint?
     private var globalHotkeyMonitor: Any?
+    private var localHotkeyMonitor: Any?
     
     weak var timerManager: TimerManager?
     
@@ -26,11 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = globalHotkeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
-    }
-    
-    // MARK: - Menu Bar Update
-    func updateMenuBarTitle(_ time: String) {
-        // Handled by SwiftUI
+        if let monitor = localHotkeyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
     
     // MARK: - Window Management
@@ -45,19 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showWindow() {
         guard let window = mainWindow else { return }
         
-        // Restore last position if available, otherwise center
         if let lastPos = lastWindowPosition {
             window.setFrameOrigin(lastPos)
         } else {
             window.center()
         }
         
-        // Ensure window level is appropriate (standard or floating)
-        // .floating keeps it above other windows, which might be why user thought it "auto closed" if it went behind?
-        // But user said "automatically closed". Usually menu bar apps are .floating or .statusBar (popovers).
-        // If I replicate CMD+W behavior, standard behavior is better?
-        // User wants it to "live in the menu bar".
-        // Let's stick to .floating to ensure it doesn't get lost, but REMOVE click-outside auto-close.
         window.level = .floating 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -79,42 +71,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = false // Disable system shadow to prevent borders, using SwiftUI shadow instead
+        window.hasShadow = false
         
-        // Remove title bar and borders
         window.styleMask = [.borderless, .fullSizeContentView] 
         window.isMovableByWindowBackground = true
         
-        // Ensure it behaves like a proper window
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     }
     
-    // MARK: - Global Hotkey (CMD + Shift + T)
+    // MARK: - Global Hotkeys
     private func setupGlobalHotkey() {
+        // Global monitor (when app is not focused)
         globalHotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let modifiers: NSEvent.ModifierFlags = [.command, .shift]
-            let hasModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(modifiers)
-            let isT = event.keyCode == kVK_ANSI_T
-            
-            if hasModifiers && isT {
-                Task { @MainActor in
-                    self?.toggleWindow()
-                }
+            Task { @MainActor in
+                self?.handleHotkey(event)
             }
         }
         
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // Local monitor (when app is focused) - must be synchronous for return value
+        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event -> NSEvent? in
+            guard let self = self else { return event }
+            
             let modifiers: NSEvent.ModifierFlags = [.command, .shift]
             let hasModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(modifiers)
-            let isT = event.keyCode == kVK_ANSI_T
             
-            if hasModifiers && isT {
-                Task { @MainActor in
-                    self?.toggleWindow()
-                }
+            guard hasModifiers else { return event }
+            
+            switch event.keyCode {
+            case UInt16(kVK_ANSI_T):
+                Task { @MainActor in self.toggleWindow() }
                 return nil
+            case UInt16(kVK_ANSI_P):
+                Task { @MainActor in self.timerManager?.toggle() }
+                return nil
+            case UInt16(kVK_ANSI_R):
+                Task { @MainActor in self.timerManager?.reset() }
+                return nil
+            case UInt16(kVK_ANSI_S):
+                Task { @MainActor in self.timerManager?.skipToNextPhase() }
+                return nil
+            default:
+                return event
             }
-            return event
+        }
+    }
+    
+    private func handleHotkey(_ event: NSEvent) {
+        let modifiers: NSEvent.ModifierFlags = [.command, .shift]
+        let hasModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(modifiers)
+        
+        guard hasModifiers else { return }
+        
+        switch event.keyCode {
+        case UInt16(kVK_ANSI_T):
+            toggleWindow()
+        case UInt16(kVK_ANSI_P):
+            timerManager?.toggle()
+        case UInt16(kVK_ANSI_R):
+            timerManager?.reset()
+        case UInt16(kVK_ANSI_S):
+            timerManager?.skipToNextPhase()
+        default:
+            break
         }
     }
 }

@@ -15,14 +15,19 @@ enum Theme {
     static let cosmicDark = Color(hex: "16161F")
     
     // Glass effect colors - reduced opacity for more transparency
-    static let glassBackground = Color.white.opacity(0.04) // Reduced from 0.08
-    static let glassBorder = Color.white.opacity(0.1)     // Reduced from 0.15
-    static let glassHighlight = Color.white.opacity(0.15)  // Reduced from 0.25
+    static let glassBackground = Color.white.opacity(0.04)
+    static let glassBorder = Color.white.opacity(0.1)
+    static let glassHighlight = Color.white.opacity(0.15)
     
     // Accent colors
     static let stellarBlue = Color(hex: "2E5EAA")
     static let accentGlow = Color(hex: "4A8FE7")
     static let nebulaPurple = Color(hex: "5E4A9E")
+    
+    // Phase-specific colors
+    static let focusAccent = Color(hex: "4A8FE7")   // Blue
+    static let breakAccent = Color(hex: "5BA37A")   // Calming green
+    static let restAccent = Color(hex: "8B7BB8")    // Relaxing purple
     
     // Text colors
     static let starWhite = Color(hex: "F0F0F5")
@@ -54,7 +59,7 @@ enum Theme {
 // MARK: - Gradient Presets
 extension Theme {
     static let spaceGradient = LinearGradient(
-        colors: [spaceBlack.opacity(0.4), deepSpace.opacity(0.3)], // Increased transparency
+        colors: [spaceBlack.opacity(0.4), deepSpace.opacity(0.3)],
         startPoint: .top,
         endPoint: .bottom
     )
@@ -65,11 +70,32 @@ extension Theme {
     )
     
     static let glowGradient = RadialGradient(
-        colors: [accentGlow.opacity(0.3), .clear], // Reduced from 0.4
+        colors: [accentGlow.opacity(0.3), .clear],
         center: .center,
         startRadius: 0,
         endRadius: 100
     )
+    
+    // Phase-specific ring gradients
+    static func ringGradient(for phase: TimerPhase) -> AngularGradient {
+        switch phase {
+        case .focus:
+            return AngularGradient(
+                colors: [stellarBlue, accentGlow, stellarBlue],
+                center: .center
+            )
+        case .shortBreak:
+            return AngularGradient(
+                colors: [Color(hex: "3A7A5A"), breakAccent, Color(hex: "3A7A5A")],
+                center: .center
+            )
+        case .longBreak:
+            return AngularGradient(
+                colors: [Color(hex: "6B5B98"), restAccent, Color(hex: "6B5B98")],
+                center: .center
+            )
+        }
+    }
 }
 
 // MARK: - Glass Modifiers
@@ -78,7 +104,7 @@ extension View {
         self
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial.opacity(0.5)) // Added opacity control
+                    .fill(.ultraThinMaterial.opacity(0.5))
                     .overlay(
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(Theme.glassBorder, lineWidth: 0.5)

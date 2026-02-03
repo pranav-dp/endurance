@@ -50,7 +50,12 @@ struct EnduranceApp: App {
         
         // Menu bar - ONLY timer, no icon
         MenuBarExtra {
-            MenuBarContentView(timerManager: timerManager, presetStore: presetStore, appDelegate: appDelegate)
+            MenuBarContentView(
+                timerManager: timerManager, 
+                presetStore: presetStore, 
+                sessionStore: sessionStore,
+                appDelegate: appDelegate
+            )
         } label: {
             MenuBarLabel(timerManager: timerManager)
         }
@@ -68,18 +73,28 @@ struct EnduranceApp: App {
     }
 }
 
-// MARK: - Menu Bar Label (ONLY timer text, NO icon)
+// MARK: - Menu Bar Label (with phase icon)
 struct MenuBarLabel: View {
     @Bindable var timerManager: TimerManager
     
     var body: some View {
         if timerManager.isRunning || timerManager.isPaused {
-            Text(timerManager.menuBarTime)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .monospacedDigit()
+            HStack(spacing: 4) {
+                Image(systemName: timerManager.currentPhase.sfSymbol)
+                    .font(.system(size: 11))
+                Text(timerManager.menuBarTime)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+            }
+        } else if timerManager.awaitingBreakStart {
+            HStack(spacing: 4) {
+                Image(systemName: timerManager.currentPhase.sfSymbol)
+                    .font(.system(size: 11))
+                Text("Break")
+                    .font(.system(size: 12, weight: .medium))
+            }
         } else {
-            // Minimalist idle state
-            Text("⏱")
+            Image(systemName: "stopwatch")
                 .font(.system(size: 12))
         }
     }
@@ -89,40 +104,95 @@ struct MenuBarLabel: View {
 struct MenuBarContentView: View {
     @Bindable var timerManager: TimerManager
     @Bindable var presetStore: PresetStore
+    @Bindable var sessionStore: SessionStore
     var appDelegate: AppDelegate
     
     var body: some View {
         VStack(spacing: 0) {
             // Timer status
-            if timerManager.isRunning || timerManager.isPaused {
-                HStack {
-                    Image(systemName: timerManager.currentPreset.icon.rawValue)
-                        .font(.system(size: 12))
-                    Text(timerManager.formattedTime)
-                        .font(.system(size: 18, weight: .medium, design: .monospaced))
+            if timerManager.isRunning || timerManager.isPaused || timerManager.awaitingBreakStart {
+                VStack(spacing: 4) {
+                    HStack {
+                        Image(systemName: timerManager.currentPhase.sfSymbol)
+                        Text(timerManager.currentPhase.rawValue)
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    
+                    if !timerManager.awaitingBreakStart {
+                        Text(timerManager.formattedTime)
+                            .font(.system(size: 24, weight: .medium, design: .monospaced))
+                    }
                 }
                 .padding(.vertical, 8)
                 
                 Divider()
             }
             
-            // Quick actions
-            Button(action: { timerManager.toggle() }) {
-                Label(
-                    timerManager.isRunning ? "Pause" : (timerManager.isPaused ? "Resume" : "Start"),
-                    systemImage: timerManager.isRunning ? "pause.fill" : "play.fill"
-                )
-            }
-            .keyboardShortcut("p", modifiers: [.command])
-            
-            if !timerManager.isIdle {
-                Button(action: { timerManager.reset() }) {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
+            // Daily progress
+            if let todayStats = sessionStore.todayStats {
+                HStack {
+                    Image(systemName: "target")
+                    Text("Today: \(formatTime(todayStats.totalFocusTime)) / \(formatTime(Double(sessionStore.dailyGoalMinutes) * 60))")
+                        .font(.system(size: 12))
                 }
-                .keyboardShortcut("r", modifiers: [.command])
+                .padding(.vertical, 6)
+                
+                Divider()
+            }
+            
+            // Quick actions
+            if timerManager.awaitingBreakStart {
+                Button(action: { timerManager.startBreak() }) {
+                    Label("Start Break", systemImage: "play.fill")
+                }
+                
+                Button(action: { 
+                    timerManager.currentPhase = .focus
+                    timerManager.awaitingBreakStart = false
+                    timerManager.remainingTime = timerManager.totalDuration
+                }) {
+                    Label("Skip Break", systemImage: "forward.fill")
+                }
+            } else {
+                Button(action: { timerManager.toggle() }) {
+                    Label(
+                        timerManager.isRunning ? "Pause" : (timerManager.isPaused ? "Resume" : "Start"),
+                        systemImage: timerManager.isRunning ? "pause.fill" : "play.fill"
+                    )
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                
+                if !timerManager.isIdle {
+                    Button(action: { timerManager.reset() }) {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                    }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    
+                    if timerManager.isBreak {
+                        Button(action: { timerManager.skipToNextPhase() }) {
+                            Label("Skip to Focus", systemImage: "forward.fill")
+                        }
+                        .keyboardShortcut("s", modifiers: [.command, .shift])
+                    }
+                }
             }
             
             Divider()
+            
+            // Session counter
+            if timerManager.completedFocusSessions > 0 {
+                HStack {
+                    ForEach(0..<timerManager.sessionsUntilLongBreak, id: \.self) { index in
+                        Image(systemName: index < timerManager.completedFocusSessions ? "circle.fill" : "circle")
+                            .font(.system(size: 8))
+                    }
+                    Text("\(timerManager.completedFocusSessions)/\(timerManager.sessionsUntilLongBreak) until long break")
+                        .font(.system(size: 11))
+                }
+                .padding(.vertical, 6)
+                
+                Divider()
+            }
             
             // Quick presets
             Menu("Quick Start") {
@@ -138,7 +208,7 @@ struct MenuBarContentView: View {
             
             Divider()
             
-            // Open main window at last position
+            // Open main window
             Button(action: {
                 appDelegate.showWindow()
             }) {
@@ -154,5 +224,14 @@ struct MenuBarContentView: View {
             }
             .keyboardShortcut("q", modifiers: [.command])
         }
+    }
+    
+    private func formatTime(_ seconds: TimeInterval) -> String {
+        let hours = Int(seconds) / 3600
+        let minutes = (Int(seconds) % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
     }
 }
