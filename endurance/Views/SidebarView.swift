@@ -1313,7 +1313,9 @@ struct PresetEditorSheet: View {
         if isEditing {
             presetStore.updatePreset(preset)
             
-            if let manager = timerManager, manager.currentPreset.id == preset.id {
+            if let manager = timerManager,
+               manager.currentPreset.id == preset.id,
+               manager.state == .idle {
                 manager.setPreset(preset)
             }
         } else {
