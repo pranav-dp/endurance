@@ -1388,6 +1388,11 @@ private struct DurationField: View {
                     .multilineTextAlignment(.center)
                     .frame(width: 36)
                     .textFieldStyle(.plain)
+                    .onChange(of: minutes) { newValue in
+                        if newValue < 1 {
+                            minutes = 1
+                        }
+                    }
                 
                 Text("m")
                     .font(.system(size: 10, design: .rounded))
