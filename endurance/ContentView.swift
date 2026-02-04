@@ -62,7 +62,6 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .focusable(false)
-            .buttonStyle(.plain)
             .contentShape(Circle())
             .padding(10)
         }
