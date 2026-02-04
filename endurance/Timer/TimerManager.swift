@@ -389,7 +389,7 @@ final class TimerManager {
             if autoStartFocus {
                 start()
             } else {
-                awaitingBreakStart = false
+                awaitingBreakStart = true
             }
         }
     }
