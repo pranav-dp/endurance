@@ -11,7 +11,7 @@ import SwiftUI
 // MARK: - Preset Icons
 enum PresetIcon: String, CaseIterable, Codable, Identifiable {
     case timer = "timer"
-    case focus = "eye"
+    case focus = "target"
     case brain = "brain.head.profile"
     case bolt = "bolt.fill"
     case flame = "flame.fill"
@@ -22,100 +22,162 @@ enum PresetIcon: String, CaseIterable, Codable, Identifiable {
     case leaf = "leaf.fill"
     case drop = "drop.fill"
     case mountain = "mountain.2.fill"
+    case book = "book.fill"
+    case graduationcap = "graduationcap.fill"
     
     var id: String { rawValue }
 }
 
+// MARK: - Timer Preset
 struct TimerPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
-    var duration: TimeInterval
     var icon: PresetIcon
-    let isDefault: Bool
+    var isDefault: Bool
     
-    init(id: UUID = UUID(), name: String, duration: TimeInterval, icon: PresetIcon = .timer, isDefault: Bool = false) {
+    // Session configuration
+    var focusDuration: TimeInterval      // Duration of each focus session
+    var breakDuration: TimeInterval      // Break duration between focus sessions
+    var numberOfSessions: Int            // How many focus sessions in total
+    
+    init(
+        id: UUID = UUID(),
+        name: String,
+        icon: PresetIcon = .timer,
+        isDefault: Bool = false,
+        focusDuration: TimeInterval = 25 * 60,
+        breakDuration: TimeInterval = 5 * 60,
+        numberOfSessions: Int = 4
+    ) {
         self.id = id
         self.name = name
-        self.duration = duration
         self.icon = icon
         self.isDefault = isDefault
+        self.focusDuration = focusDuration
+        self.breakDuration = breakDuration
+        self.numberOfSessions = numberOfSessions
     }
     
-    // Human-readable duration
-    var formattedDuration: String {
-        let totalSeconds = Int(duration)
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let remainingMinutes = minutes % 60
-            return remainingMinutes > 0 ? "\(hours)h \(remainingMinutes)m" : "\(hours)h"
-        }
-        
-        if seconds > 0 && minutes < 10 {
-            return "\(minutes)m \(seconds)s"
-        }
-        
-        return "\(minutes)m"
+    // MARK: - Computed Properties
+    
+    /// Total focus time: sessions × focusDuration
+    var totalFocusTime: TimeInterval {
+        focusDuration * Double(numberOfSessions)
     }
     
-    var shortDuration: String {
-        let minutes = Int(duration) / 60
-        return "\(minutes)"
+    /// Total break time: (sessions − 1) × breakDuration
+    var totalBreakTime: TimeInterval {
+        breakDuration * Double(max(0, numberOfSessions - 1))
+    }
+    
+    /// Total session duration: focus + breaks
+    var totalDuration: TimeInterval {
+        totalFocusTime + totalBreakTime
+    }
+    
+    /// Human-readable focus duration (e.g., "25m", "1h 30m")
+    var formattedFocusDuration: String {
+        formatDuration(focusDuration)
+    }
+    
+    /// Human-readable break duration
+    var formattedBreakDuration: String {
+        formatDuration(breakDuration)
+    }
+    
+    /// Human-readable total duration
+    var formattedTotalDuration: String {
+        formatDuration(totalDuration)
+    }
+    
+    /// Summary like "25m focus • 4 sessions"
+    var summaryDescription: String {
+        "\(formattedFocusDuration) focus • \(numberOfSessions) sessions"
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalMinutes = Int(duration) / 60
+        
+        if totalMinutes >= 60 {
+            let hours = totalMinutes / 60
+            let minutes = totalMinutes % 60
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        }
+        
+        return "\(totalMinutes)m"
     }
 }
 
 // MARK: - Default Presets
 extension TimerPreset {
-    static let pomodoro = TimerPreset(
-        name: "Focus",
-        duration: 25 * 60,
+    /// Classic Pomodoro: 25m focus, 5m break, 4 sessions
+    static let classicPomodoro = TimerPreset(
+        name: "Classic",
         icon: .focus,
-        isDefault: true
+        isDefault: true,
+        focusDuration: 25 * 60,
+        breakDuration: 5 * 60,
+        numberOfSessions: 4
     )
     
-    static let shortBreak = TimerPreset(
-        name: "Break",
-        duration: 5 * 60,
-        icon: .moon
-    )
-    
-    static let longBreak = TimerPreset(
-        name: "Rest",
-        duration: 15 * 60,
-        icon: .leaf
-    )
-    
+    /// Deep Work: 50m focus, 10m break, 4 sessions
     static let deepWork = TimerPreset(
-        name: "Deep",
-        duration: 50 * 60,
-        icon: .brain
+        name: "Deep Work",
+        icon: .brain,
+        isDefault: true,
+        focusDuration: 50 * 60,
+        breakDuration: 10 * 60,
+        numberOfSessions: 4
+    )
+    
+    /// Study Sprint: 45m focus, 15m break, 3 sessions
+    static let studySprint = TimerPreset(
+        name: "Study Sprint",
+        icon: .graduationcap,
+        isDefault: true,
+        focusDuration: 45 * 60,
+        breakDuration: 15 * 60,
+        numberOfSessions: 3
+    )
+    
+    /// Marathon: 90m focus, 20m break, 3 sessions
+    static let marathon = TimerPreset(
+        name: "Marathon",
+        icon: .flame,
+        isDefault: true,
+        focusDuration: 90 * 60,
+        breakDuration: 20 * 60,
+        numberOfSessions: 3
     )
     
     static let allDefaults: [TimerPreset] = [
-        .pomodoro,
-        .shortBreak,
-        .longBreak,
-        .deepWork
+        .classicPomodoro,
+        .deepWork,
+        .studySprint,
+        .marathon
     ]
 }
 
-// MARK: - Preset Store for Custom Presets
+// MARK: - Preset Store
 @MainActor
 @Observable
 final class PresetStore {
-    private let userDefaultsKey = "customPresets"
+    // Bumped version to force fresh load after removing long break fields
+    private let userDefaultsKey = "pomodoroPresets_v3"
+    private let defaultPresetsKey = "defaultPresetsCustomized_v3"
     
     var customPresets: [TimerPreset] = []
+    var defaultPresets: [TimerPreset] = TimerPreset.allDefaults
     
     init() {
         loadPresets()
     }
     
     var allPresets: [TimerPreset] {
-        TimerPreset.allDefaults + customPresets
+        defaultPresets + customPresets
     }
+    
+    // MARK: - Preset Management
     
     func addPreset(_ preset: TimerPreset) {
         customPresets.append(preset)
@@ -128,19 +190,44 @@ final class PresetStore {
     }
     
     func updatePreset(_ preset: TimerPreset) {
+        if let index = defaultPresets.firstIndex(where: { $0.id == preset.id }) {
+            defaultPresets[index] = preset
+            savePresets()
+            return
+        }
+        
         if let index = customPresets.firstIndex(where: { $0.id == preset.id }) {
             customPresets[index] = preset
             savePresets()
         }
     }
     
+    func resetDefaultPreset(_ preset: TimerPreset) {
+        if let original = TimerPreset.allDefaults.first(where: { $0.name == preset.name }),
+           let index = defaultPresets.firstIndex(where: { $0.id == preset.id }) {
+            defaultPresets[index] = original
+            savePresets()
+        }
+    }
+    
+    // MARK: - Persistence
+    
     private func savePresets() {
         if let data = try? JSONEncoder().encode(customPresets) {
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
         }
+        
+        if let data = try? JSONEncoder().encode(defaultPresets) {
+            UserDefaults.standard.set(data, forKey: defaultPresetsKey)
+        }
     }
     
     private func loadPresets() {
+        if let data = UserDefaults.standard.data(forKey: defaultPresetsKey),
+           let presets = try? JSONDecoder().decode([TimerPreset].self, from: data) {
+            defaultPresets = presets
+        }
+        
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let presets = try? JSONDecoder().decode([TimerPreset].self, from: data) {
             customPresets = presets

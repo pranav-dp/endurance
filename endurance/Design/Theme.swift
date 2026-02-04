@@ -84,14 +84,9 @@ extension Theme {
                 colors: [stellarBlue, accentGlow, stellarBlue],
                 center: .center
             )
-        case .shortBreak:
+        case .break:
             return AngularGradient(
                 colors: [Color(hex: "3A7A5A"), breakAccent, Color(hex: "3A7A5A")],
-                center: .center
-            )
-        case .longBreak:
-            return AngularGradient(
-                colors: [Color(hex: "6B5B98"), restAccent, Color(hex: "6B5B98")],
                 center: .center
             )
         }

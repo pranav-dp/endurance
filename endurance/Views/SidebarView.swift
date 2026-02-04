@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 // MARK: - Sidebar Navigation
 enum SidebarTab: String, CaseIterable, Identifiable {
@@ -37,19 +38,16 @@ struct IconSidebar: View {
     var body: some View {
         VStack(spacing: 6) {
             ForEach(SidebarTab.allCases) { tab in
-                Button(action: {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                        selectedTab = tab
+                SidebarTabButton(
+                    tab: tab,
+                    isSelected: selectedTab == tab,
+                    accentColor: accentColor,
+                    action: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            selectedTab = tab
+                        }
                     }
-                }) {
-                    Image(systemName: tab.icon)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(selectedTab == tab ? accentColor : Theme.dustGray)
-                        .frame(width: 36, height: 36)
-                        .glassButton(isSelected: selectedTab == tab, cornerRadius: 10)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
+                )
             }
             
             Spacer()
@@ -74,11 +72,47 @@ struct IconSidebar: View {
     }
 }
 
+// MARK: - Sidebar Tab Button with Hover Effect
+struct SidebarTabButton: View {
+    let tab: SidebarTab
+    let isSelected: Bool
+    var accentColor: Color = Theme.accentGlow
+    let action: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: tab.icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(isSelected ? accentColor : (isHovered ? accentColor.opacity(0.7) : Theme.dustGray))
+                .frame(width: 36, height: 36)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? accentColor.opacity(0.08) : Theme.glassBackground))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(isSelected ? accentColor.opacity(0.3) : Theme.glassBorder, lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
 // MARK: - Presets Panel
 struct PresetsPanel: View {
     @Bindable var timerManager: TimerManager
     @Bindable var presetStore: PresetStore
     @Binding var showingAddPreset: Bool
+    @Binding var showingEditPreset: Bool
+    @Binding var editingPreset: TimerPreset?
     var accentColor: Color = Theme.accentGlow
     
     @Environment(\.colorScheme) private var colorScheme
@@ -102,17 +136,15 @@ struct PresetsPanel: View {
                             accentColor: accentColor,
                             onTap: { 
                                 timerManager.setPreset(preset)
+                            },
+                            onEdit: {
+                                editingPreset = preset
+                                showingEditPreset = true
+                            },
+                            onDelete: {
+                                presetStore.removePreset(preset)
                             }
                         )
-                        .contextMenu {
-                            if !preset.isDefault {
-                                Button(role: .destructive, action: {
-                                    presetStore.removePreset(preset)
-                                }) {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        }
                     }
                     
                     // Add New Preset card at the end
@@ -127,7 +159,7 @@ struct PresetsPanel: View {
                                 .foregroundStyle(Theme.primaryText(colorScheme))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .frame(height: 80)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .stroke(accentColor.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
@@ -137,48 +169,6 @@ struct PresetsPanel: View {
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 16)
-                
-                // Custom duration section - MORE PROMINENT
-                VStack(spacing: 12) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(accentColor)
-                        
-                        Text("Custom Timer")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Theme.primaryText(colorScheme))
-                        
-                        Spacer()
-                    }
-                    
-                    CustomDurationPicker(
-                        duration: Binding(
-                            get: { timerManager.customDuration },
-                            set: { timerManager.setCustomDuration($0) }
-                        ),
-                        accentColor: accentColor,
-                        onApply: {
-                            // Create a temporary custom preset
-                            let customPreset = TimerPreset(
-                                name: "Custom",
-                                duration: timerManager.customDuration,
-                                icon: .timer
-                            )
-                            timerManager.setPreset(customPreset)
-                        }
-                    )
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(accentColor.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(accentColor.opacity(0.2), lineWidth: 1)
-                        )
-                )
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
             }
@@ -192,135 +182,85 @@ struct PresetCard: View {
     let isSelected: Bool
     var accentColor: Color = Theme.accentGlow
     let onTap: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
     
     @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
     
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: preset.icon.rawValue)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(isSelected ? accentColor : Theme.dustGray)
+                    .foregroundStyle(isSelected ? accentColor : (isHovered ? accentColor.opacity(0.8) : Theme.dustGray))
                 
                 Text(preset.name)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.primaryText(colorScheme))
                     .lineLimit(1)
                 
-                Text(preset.formattedDuration)
-                    .font(.system(size: 10, design: .rounded))
+                Text(preset.summaryDescription)
+                    .font(.system(size: 9, design: .rounded))
                     .foregroundStyle(Theme.secondaryText(colorScheme))
+                    .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .glassButton(isSelected: isSelected, cornerRadius: 12)
+            .frame(height: 80)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? accentColor.opacity(0.08) : Theme.glassBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? accentColor.opacity(0.3) : (isHovered ? accentColor.opacity(0.2) : Theme.glassBorder), lineWidth: 0.5)
+                    )
+            )
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+        .overlay(alignment: .topTrailing) {
+            // Hover overlay with edit/delete buttons
+            if isHovered {
+                HStack(spacing: 4) {
+                    // Edit button
+                    Button(action: { onEdit?() }) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(
+                                Circle()
+                                    .fill(accentColor)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    
+                    // Delete button for all presets
+                    Button(action: { onDelete?() }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(
+                                Circle()
+                                    .fill(Color.red.opacity(0.8))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(6)
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 
 // MARK: - Custom Duration Picker (exact minutes, larger click targets)
-struct CustomDurationPicker: View {
-    @Binding var duration: TimeInterval
-    var accentColor: Color = Theme.accentGlow
-    var onApply: () -> Void
-    
-    @State private var textValue: String = ""
-    @FocusState private var isFocused: Bool
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        HStack(spacing: 10) {
-            // Duration input
-            HStack(spacing: 4) {
-                TextField("", text: $textValue)
-                    .font(.system(size: 20, weight: .medium, design: .rounded))
-                    .foregroundStyle(Theme.primaryText(colorScheme))
-                    .multilineTextAlignment(.center)
-                    .frame(width: 50)
-                    .focused($isFocused)
-                    .onSubmit { applyValue() }
-                    .onChange(of: isFocused) { _, focused in
-                        if !focused { applyValue() }
-                    }
-                
-                Text("min")
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(Theme.secondaryText(colorScheme))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .glassButton(cornerRadius: 10)
-            
-            // +/- buttons with LARGE click targets
-            HStack(spacing: 6) {
-                Button(action: { adjustDuration(by: -1) }) {
-                    Image(systemName: "minus")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Theme.dustGray)
-                        .frame(width: 40, height: 40)
-                        .glassButton(cornerRadius: 10)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                
-                Button(action: { adjustDuration(by: 1) }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Theme.dustGray)
-                        .frame(width: 40, height: 40)
-                        .glassButton(cornerRadius: 10)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-            }
-            
-            Spacer()
-            
-            // Apply button with accent color
-            Button(action: {
-                applyValue()
-                onApply()
-            }) {
-                Text("Set")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(accentColor)
-                    )
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-        }
-        .onAppear {
-            textValue = "\(Int(duration / 60))"
-        }
-        .onChange(of: duration) { _, newValue in
-            textValue = "\(Int(newValue / 60))"
-        }
-    }
-    
-    private func applyValue() {
-        if let minutes = Int(textValue), minutes > 0 {
-            duration = TimeInterval(minutes * 60)
-        } else {
-            textValue = "\(Int(duration / 60))"
-        }
-    }
-    
-    private func adjustDuration(by minutes: Int) {
-        let currentMinutes = Int(duration / 60)
-        let newMinutes = max(1, currentMinutes + minutes)
-        duration = TimeInterval(newMinutes * 60)
-        textValue = "\(newMinutes)"
-    }
-}
-
 // MARK: - Stats Panel (REAL data)
 struct StatsPanel: View {
     @Bindable var sessionStore: SessionStore
@@ -849,97 +789,7 @@ struct SettingsPanel: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.top, 16)
                 
-                // Pomodoro Settings
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("POMODORO")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.dimGray)
-                        .padding(.horizontal, 16)
-                    
-                    // Focus Duration
-                    SettingRow(
-                        icon: "eye",
-                        title: "Focus Duration",
-                        value: "\(Int(timerManager.focusDuration / 60)) min",
-                        accentColor: accentColor
-                    ) {
-                        DurationStepper(
-                            value: Binding(
-                                get: { Int(timerManager.focusDuration / 60) },
-                                set: { timerManager.focusDuration = TimeInterval($0 * 60) }
-                            ),
-                            range: 5...120
-                        )
-                    }
-                    
-                    // Short Break
-                    SettingRow(
-                        icon: "cup.and.saucer.fill",
-                        title: "Short Break",
-                        value: "\(Int(timerManager.shortBreakDuration / 60)) min",
-                        accentColor: accentColor
-                    ) {
-                        DurationStepper(
-                            value: Binding(
-                                get: { Int(timerManager.shortBreakDuration / 60) },
-                                set: { timerManager.shortBreakDuration = TimeInterval($0 * 60) }
-                            ),
-                            range: 1...30
-                        )
-                    }
-                    
-                    // Long Break
-                    SettingRow(
-                        icon: "leaf.fill",
-                        title: "Long Break",
-                        value: "\(Int(timerManager.longBreakDuration / 60)) min",
-                        accentColor: accentColor
-                    ) {
-                        DurationStepper(
-                            value: Binding(
-                                get: { Int(timerManager.longBreakDuration / 60) },
-                                set: { timerManager.longBreakDuration = TimeInterval($0 * 60) }
-                            ),
-                            range: 5...60
-                        )
-                    }
-                    
-                    // Sessions until long break
-                    SettingRow(
-                        icon: "repeat",
-                        title: "Long Break After",
-                        value: "\(timerManager.sessionsUntilLongBreak) sessions",
-                        accentColor: accentColor
-                    ) {
-                        DurationStepper(
-                            value: Binding(
-                                get: { timerManager.sessionsUntilLongBreak },
-                                set: { timerManager.sessionsUntilLongBreak = $0 }
-                            ),
-                            range: 2...8
-                        )
-                    }
-                }
-                
-                // Break Settings
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("BREAKS")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.dimGray)
-                        .padding(.horizontal, 16)
-                    
-                    // Auto-start break
-                    SettingToggle(
-                        icon: "play.circle.fill",
-                        title: "Auto-Start Break",
-                        subtitle: "Start break timer automatically",
-                        accentColor: accentColor,
-                        isOn: Binding(
-                            get: { timerManager.autoStartBreak },
-                            set: { timerManager.autoStartBreak = $0 }
-                        )
-                    )
-                }
+                // Pomodoro settings now live in presets - this section removed
                 
                 // Daily Goal
                 VStack(alignment: .leading, spacing: 12) {
@@ -964,6 +814,36 @@ struct SettingsPanel: View {
                             step: 30
                         )
                     }
+                }
+                
+                // Automation
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("AUTOMATION")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.dimGray)
+                        .padding(.horizontal, 16)
+                    
+                    SettingToggle(
+                        icon: "arrow.triangle.2.circlepath",
+                        title: "Auto-start Breaks",
+                        subtitle: "Start break immediately after focus ends",
+                        accentColor: accentColor,
+                        isOn: Binding(
+                            get: { timerManager.autoStartBreaks },
+                            set: { timerManager.autoStartBreaks = $0 }
+                        )
+                    )
+                    
+                    SettingToggle(
+                        icon: "bolt.fill",
+                        title: "Auto-start Focus",
+                        subtitle: "Start next session immediately after break",
+                        accentColor: accentColor,
+                        isOn: Binding(
+                            get: { timerManager.autoStartFocus },
+                            set: { timerManager.autoStartFocus = $0 }
+                        )
+                    )
                 }
                 
                 // Notifications
@@ -994,15 +874,63 @@ struct SettingsPanel: View {
                             set: { timerManager.notificationsEnabled = $0 }
                         )
                     )
+                    
+                    // Test notification button
+                    Button(action: sendTestNotification) {
+                        HStack {
+                            Image(systemName: "bell.badge")
+                                .font(.system(size: 13))
+                                .foregroundStyle(accentColor)
+                                .frame(width: 24)
+                            
+                            Text("Test Notification")
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundStyle(Theme.primaryText(colorScheme))
+                            
+                            Spacer()
+                            
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(accentColor)
+                        }
+                        .padding(12)
+                        .glassButton(cornerRadius: 10)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
                 }
-                
                 Spacer(minLength: 20)
                 
-                Text("Endurance v1.0")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(Theme.dimGray)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 16)
+                // App info footer (like Euclid example)
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Endurance")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.primaryText(colorScheme))
+                        
+                        Text("Version 2.0")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(Theme.secondaryText(colorScheme))
+                        
+                        Text("A minimal Pomodoro timer and focus tracker for deep work.")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(Theme.secondaryText(colorScheme))
+                            .padding(.top, 4)
+                        
+                        Text("Built by Pranav")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(accentColor)
+                            .padding(.top, 2)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "timer")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(Theme.dimGray.opacity(0.5))
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -1014,6 +942,21 @@ struct SettingsPanel: View {
             return mins > 0 ? "\(hours)h \(mins)m" : "\(hours)h"
         }
         return "\(minutes)m"
+    }
+    
+    private func sendTestNotification() {
+        let content = UNMutableNotificationContent()
+        content.title = "Endurance Test"
+        content.body = "Notifications are working correctly!"
+        content.sound = timerManager.soundEnabled ? .default : nil
+        
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil // Immediate
+        )
+        
+        UNUserNotificationCenter.current().add(request)
     }
 }
 
@@ -1131,21 +1074,50 @@ struct DurationStepper: View {
 }
 
 // MARK: - Add Preset Sheet
-struct AddPresetSheet: View {
+struct PresetEditorSheet: View {
     @Bindable var presetStore: PresetStore
     @Binding var isPresented: Bool
+    var editingPreset: TimerPreset?
+    var timerManager: TimerManager?
     
+    // Preset fields
     @State private var name: String = ""
-    @State private var minutes: Int = 25
     @State private var selectedIcon: PresetIcon = .timer
+    @State private var focusMinutes: Int = 25
+    @State private var breakMinutes: Int = 5
+    @State private var numberOfSessions: Int = 4
     
     @Environment(\.colorScheme) private var colorScheme
     
+    private var isEditing: Bool { editingPreset != nil }
+    
+    // MARK: - Time Calculations
+    private var totalFocusTime: TimeInterval {
+        TimeInterval(focusMinutes * 60 * numberOfSessions)
+    }
+    
+    private var totalBreakTime: TimeInterval {
+        TimeInterval(breakMinutes * 60 * max(0, numberOfSessions - 1))
+    }
+    
+    private var totalDuration: TimeInterval {
+        totalFocusTime + totalBreakTime
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let hours = Int(duration) / 3600
+        let minutes = (Int(duration) % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
+    }
+    
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             // Header
             HStack {
-                Text("New Preset")
+                Text(isEditing ? "Edit Preset" : "New Preset")
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.primaryText(colorScheme))
                 
@@ -1160,7 +1132,7 @@ struct AddPresetSheet: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .contentShape(Circle())
+                .focusable(false)
             }
             
             // Name field
@@ -1176,25 +1148,94 @@ struct AddPresetSheet: View {
                     .glassButton(cornerRadius: 8)
             }
             
-            // Duration
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Duration")
+            // Duration fields
+            HStack(spacing: 10) {
+                DurationField(label: "Focus", minutes: $focusMinutes, colorScheme: colorScheme)
+                DurationField(label: "Break", minutes: $breakMinutes, colorScheme: colorScheme)
+            }
+            
+            // Number of sessions
+            HStack {
+                Text("Focus Sessions")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.secondaryText(colorScheme))
                 
-                HStack {
-                    TextField("", value: $minutes, format: .number)
-                        .font(.system(size: 18, weight: .medium, design: .rounded))
-                        .multilineTextAlignment(.center)
-                        .frame(width: 50)
-                        .textFieldStyle(.plain)
+                Spacer()
+                
+                HStack(spacing: 6) {
+                    Button(action: { if numberOfSessions > 1 { numberOfSessions -= 1 } }) {
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.dustGray)
+                            .frame(width: 24, height: 24)
+                            .glassButton(cornerRadius: 6)
+                    }
+                    .buttonStyle(.plain)
                     
-                    Text("minutes")
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(Theme.secondaryText(colorScheme))
+                    Text("\(numberOfSessions)")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.primaryText(colorScheme))
+                        .frame(width: 30)
+                    
+                    Button(action: { if numberOfSessions < 10 { numberOfSessions += 1 } }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.dustGray)
+                            .frame(width: 24, height: 24)
+                            .glassButton(cornerRadius: 6)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(10)
-                .glassButton(cornerRadius: 8)
+            }
+            .padding(10)
+            .glassButton(cornerRadius: 8)
+            
+            // Routine Preview
+            VStack(spacing: 8) {
+                Text("Session Routine")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.secondaryText(colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(0..<numberOfSessions, id: \.self) { index in
+                            // Focus block
+                            RoutineBlock(
+                                type: .focus,
+                                duration: "\(focusMinutes)m",
+                                colorScheme: colorScheme
+                            )
+                            
+                            // Break block (not after last session)
+                            if index < numberOfSessions - 1 {
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(Theme.dimGray)
+                                
+                                RoutineBlock(
+                                    type: .break,
+                                    duration: "\(breakMinutes)m",
+                                    colorScheme: colorScheme
+                                )
+                                
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(Theme.dimGray)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+            .padding(10)
+            .glassButton(cornerRadius: 8)
+            
+            // Time Summary
+            HStack(spacing: 8) {
+                TimeStat(label: "Focus", value: formatDuration(totalFocusTime), color: Theme.accentGlow, colorScheme: colorScheme)
+                TimeStat(label: "Breaks", value: formatDuration(totalBreakTime), color: Theme.breakAccent, colorScheme: colorScheme)
+                TimeStat(label: "Total", value: formatDuration(totalDuration), color: Theme.starWhite, colorScheme: colorScheme)
             }
             
             // Icon selection
@@ -1203,17 +1244,16 @@ struct AddPresetSheet: View {
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.secondaryText(colorScheme))
                 
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6), spacing: 6) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
                     ForEach(PresetIcon.allCases) { icon in
                         Button(action: { selectedIcon = icon }) {
                             Image(systemName: icon.rawValue)
-                                .font(.system(size: 16))
+                                .font(.system(size: 14))
                                 .foregroundStyle(selectedIcon == icon ? Theme.accentGlow : Theme.dustGray)
-                                .frame(width: 32, height: 32)
-                                .glassButton(isSelected: selectedIcon == icon, cornerRadius: 8)
+                                .frame(width: 28, height: 28)
+                                .glassButton(isSelected: selectedIcon == icon, cornerRadius: 6)
                         }
                         .buttonStyle(.plain)
-                        .contentShape(Rectangle())
                     }
                 }
             }
@@ -1222,7 +1262,7 @@ struct AddPresetSheet: View {
             
             // Save button
             Button(action: savePreset) {
-                Text("Save Preset")
+                Text(isEditing ? "Save Changes" : "Create Preset")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -1239,23 +1279,121 @@ struct AddPresetSheet: View {
                     )
             }
             .buttonStyle(.plain)
-            .contentShape(Rectangle())
             .disabled(name.isEmpty)
             .opacity(name.isEmpty ? 0.5 : 1)
         }
         .padding(16)
-        .frame(width: 260, height: 360)
+        .frame(width: 320, height: 580)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .onAppear {
+            if let preset = editingPreset {
+                name = preset.name
+                selectedIcon = preset.icon
+                focusMinutes = Int(preset.focusDuration / 60)
+                breakMinutes = Int(preset.breakDuration / 60)
+                numberOfSessions = preset.numberOfSessions
+            }
+        }
     }
     
     private func savePreset() {
         let preset = TimerPreset(
+            id: editingPreset?.id ?? UUID(),
             name: name,
-            duration: TimeInterval(minutes * 60),
-            icon: selectedIcon
+            icon: selectedIcon,
+            isDefault: editingPreset?.isDefault ?? false,
+            focusDuration: TimeInterval(focusMinutes * 60),
+            breakDuration: TimeInterval(breakMinutes * 60),
+            numberOfSessions: numberOfSessions
         )
-        presetStore.addPreset(preset)
+        
+        if isEditing {
+            presetStore.updatePreset(preset)
+            
+            if let manager = timerManager, manager.currentPreset.id == preset.id {
+                manager.setPreset(preset)
+            }
+        } else {
+            presetStore.addPreset(preset)
+        }
         isPresented = false
     }
 }
+
+// MARK: - Routine Block
+private struct RoutineBlock: View {
+    enum BlockType { case focus, `break` }
+    
+    let type: BlockType
+    let duration: String
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: type == .focus ? "book.fill" : "cup.and.saucer.fill")
+                .font(.system(size: 9))
+            Text(duration)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+        }
+        .foregroundStyle(type == .focus ? Theme.accentGlow : Theme.breakAccent)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill((type == .focus ? Theme.accentGlow : Theme.breakAccent).opacity(0.15))
+        )
+    }
+}
+
+// MARK: - Time Stat
+private struct TimeStat: View {
+    let label: String
+    let value: String
+    let color: Color
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.system(size: 9, design: .rounded))
+                .foregroundStyle(Theme.secondaryText(colorScheme))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .glassButton(cornerRadius: 8)
+    }
+}
+
+// MARK: - Duration Field Helper
+private struct DurationField: View {
+    let label: String
+    @Binding var minutes: Int
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.secondaryText(colorScheme))
+            
+            HStack(spacing: 2) {
+                TextField("", value: $minutes, format: .number)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .frame(width: 36)
+                    .textFieldStyle(.plain)
+                
+                Text("m")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(Theme.secondaryText(colorScheme))
+            }
+            .padding(8)
+            .glassButton(cornerRadius: 6)
+        }
+    }
+}
+

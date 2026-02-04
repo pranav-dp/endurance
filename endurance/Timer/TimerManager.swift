@@ -20,14 +20,25 @@ enum TimerState: Equatable {
 // MARK: - Timer Phase
 enum TimerPhase: String, Equatable {
     case focus = "Focus"
-    case shortBreak = "Short Break"
-    case longBreak = "Long Break"
+    case `break` = "Break"
     
     var sfSymbol: String {
         switch self {
-        case .focus: return "eye"
-        case .shortBreak: return "cup.and.saucer.fill"
-        case .longBreak: return "leaf.fill"
+        case .focus: return "book.fill"
+        case .break: return "cup.and.saucer.fill"
+        }
+    }
+}
+
+// MARK: - Timer Mode
+enum TimerMode: String, Equatable {
+    case pomodoro = "Pomodoro"
+    case quickTimer = "Quick Timer"
+    
+    var sfSymbol: String {
+        switch self {
+        case .pomodoro: return "timer"
+        case .quickTimer: return "stopwatch"
         }
     }
 }
@@ -35,65 +46,35 @@ enum TimerPhase: String, Equatable {
 @MainActor
 @Observable
 final class TimerManager {
+    // MARK: - Timer Mode
+    var timerMode: TimerMode = .pomodoro
+    
     // MARK: - Published State
     var state: TimerState = .idle
-    var remainingTime: TimeInterval = 50 * 60
-    var currentPreset: TimerPreset = .deepWork
-    var customDuration: TimeInterval = 50 * 60
+    var remainingTime: TimeInterval = 25 * 60
+    var currentPreset: TimerPreset = .classicPomodoro
+    
+    // MARK: - Quick Timer Mode
+    var quickTimerDuration: TimeInterval = 30 * 60 {
+        didSet {
+            UserDefaults.standard.set(quickTimerDuration, forKey: "quickTimerDuration")
+            // Update remaining time if we are in Quick Timer mode and idle
+            if timerMode == .quickTimer && state == .idle {
+                remainingTime = quickTimerDuration
+            }
+        }
+    }
     
     // MARK: - Pomodoro Phase System
     var currentPhase: TimerPhase = .focus
-    var completedFocusSessions: Int = 0
+    var currentSessionIndex: Int = 0  // 0-based index of current focus session
     var awaitingBreakStart: Bool = false
     
-    // MARK: - Settings (Stored properties for reactivity, synced to UserDefaults)
-    private var _focusDuration: TimeInterval
-    private var _shortBreakDuration: TimeInterval
-    private var _longBreakDuration: TimeInterval
-    private var _sessionsUntilLongBreak: Int
-    private var _autoStartBreak: Bool
+    // MARK: - Settings (persisted separately from preset)
     private var _soundEnabled: Bool
     private var _notificationsEnabled: Bool
-    
-    var focusDuration: TimeInterval {
-        get { _focusDuration }
-        set { 
-            _focusDuration = newValue
-            UserDefaults.standard.set(newValue, forKey: "focusDuration")
-        }
-    }
-    
-    var shortBreakDuration: TimeInterval {
-        get { _shortBreakDuration }
-        set { 
-            _shortBreakDuration = newValue
-            UserDefaults.standard.set(newValue, forKey: "shortBreakDuration")
-        }
-    }
-    
-    var longBreakDuration: TimeInterval {
-        get { _longBreakDuration }
-        set { 
-            _longBreakDuration = newValue
-            UserDefaults.standard.set(newValue, forKey: "longBreakDuration")
-        }
-    }
-    
-    var sessionsUntilLongBreak: Int {
-        get { _sessionsUntilLongBreak }
-        set { 
-            _sessionsUntilLongBreak = newValue
-            UserDefaults.standard.set(newValue, forKey: "sessionsUntilLongBreak")
-        }
-    }
-    
-    var autoStartBreak: Bool {
-        get { _autoStartBreak }
-        set { 
-            _autoStartBreak = newValue
-            UserDefaults.standard.set(newValue, forKey: "autoStartBreak")
-        }
-    }
+    private var _autoStartBreaks: Bool
+    private var _autoStartFocus: Bool
     
     var soundEnabled: Bool {
         get { _soundEnabled }
@@ -111,6 +92,22 @@ final class TimerManager {
         }
     }
     
+    var autoStartBreaks: Bool {
+        get { _autoStartBreaks }
+        set {
+            _autoStartBreaks = newValue
+            UserDefaults.standard.set(newValue, forKey: "autoStartBreaks")
+        }
+    }
+    
+    var autoStartFocus: Bool {
+        get { _autoStartFocus }
+        set {
+            _autoStartFocus = newValue
+            UserDefaults.standard.set(newValue, forKey: "autoStartFocus")
+        }
+    }
+    
     // MARK: - Computed Properties
     var progress: Double {
         guard totalDuration > 0 else { return 0 }
@@ -118,32 +115,56 @@ final class TimerManager {
     }
     
     var totalDuration: TimeInterval {
+        if timerMode == .quickTimer {
+            return quickTimerDuration
+        }
+        
         switch currentPhase {
         case .focus:
-            return currentPreset.duration > 0 ? currentPreset.duration : focusDuration
-        case .shortBreak:
-            return shortBreakDuration
-        case .longBreak:
-            return longBreakDuration
+            return currentPreset.focusDuration
+        case .break:
+            return currentPreset.breakDuration
         }
     }
     
     var formattedTime: String {
-        let minutes = Int(remainingTime) / 60
-        let seconds = Int(remainingTime) % 60
+        let totalSeconds = Int(remainingTime)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
         return String(format: "%02d:%02d", minutes, seconds)
     }
     
     var menuBarTime: String {
-        let minutes = Int(remainingTime) / 60
-        let seconds = Int(remainingTime) % 60
+        let totalSeconds = Int(remainingTime)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
         return String(format: "%d:%02d", minutes, seconds)
     }
     
     var isRunning: Bool { state == .running }
     var isPaused: Bool { state == .paused }
     var isIdle: Bool { state == .idle }
-    var isBreak: Bool { currentPhase != .focus }
+    var isBreak: Bool { currentPhase == .break }
+    
+    /// Number of focus sessions in current preset
+    var numberOfSessions: Int {
+        currentPreset.numberOfSessions
+    }
+    
+    /// Number of completed focus sessions (0-based index converted to count)
+    var completedFocusSessions: Int {
+        currentSessionIndex
+    }
     
     // MARK: - Private State
     private var timer: Timer?
@@ -154,28 +175,78 @@ final class TimerManager {
     // MARK: - Callbacks
     var onTimerStart: (() -> Void)?
     var onTimerComplete: (() -> Void)?
-    var onTimerCancel: ((TimeInterval) -> Void)?  // elapsed time
+    var onTimerCancel: ((TimeInterval) -> Void)?
     var onTick: (() -> Void)?
     
     // MARK: - Initialization
     init() {
-        // Load from UserDefaults with defaults
         let defaults = UserDefaults.standard
-        _focusDuration = defaults.double(forKey: "focusDuration").nonZeroOr(50 * 60)
-        _shortBreakDuration = defaults.double(forKey: "shortBreakDuration").nonZeroOr(5 * 60)
-        _longBreakDuration = defaults.double(forKey: "longBreakDuration").nonZeroOr(15 * 60)
         
-        let sessions = defaults.integer(forKey: "sessionsUntilLongBreak")
-        _sessionsUntilLongBreak = sessions > 0 ? sessions : 4
-        
-        _autoStartBreak = defaults.object(forKey: "autoStartBreak") == nil ? true : defaults.bool(forKey: "autoStartBreak")
         _soundEnabled = defaults.object(forKey: "soundEnabled") == nil ? true : defaults.bool(forKey: "soundEnabled")
         _notificationsEnabled = defaults.object(forKey: "notificationsEnabled") == nil ? true : defaults.bool(forKey: "notificationsEnabled")
+        _autoStartBreaks = defaults.object(forKey: "autoStartBreaks") == nil ? true : defaults.bool(forKey: "autoStartBreaks")
+        _autoStartFocus = defaults.object(forKey: "autoStartFocus") == nil ? true : defaults.bool(forKey: "autoStartFocus")
         
-        remainingTime = _focusDuration
+        // Load saved timer mode
+        if let modeString = defaults.string(forKey: "timerMode"),
+           let mode = TimerMode(rawValue: modeString) {
+            timerMode = mode
+        }
+        
+        // Load quick timer duration
+        let savedQuickDuration = defaults.double(forKey: "quickTimerDuration")
+        if savedQuickDuration > 0 {
+            quickTimerDuration = savedQuickDuration
+        }
+        
+        // Load last used preset
+        if let savedPresetData = defaults.data(forKey: "lastUsedPreset"),
+           let savedPreset = try? JSONDecoder().decode(TimerPreset.self, from: savedPresetData) {
+            currentPreset = savedPreset
+        }
+        
+        // Initialize remaining time based on mode
+        if timerMode == .quickTimer {
+            remainingTime = quickTimerDuration
+        } else {
+            remainingTime = currentPreset.focusDuration
+        }
         
         setupNotifications()
         requestNotificationPermission()
+    }
+    
+    // MARK: - Mode Control
+    func setTimerMode(_ mode: TimerMode) {
+        guard state == .idle else { return }
+        
+        timerMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: "timerMode")
+        
+        if mode == .quickTimer {
+            remainingTime = quickTimerDuration
+            currentPhase = .focus
+        } else {
+            remainingTime = currentPreset.focusDuration
+            currentPhase = .focus
+        }
+        
+        currentSessionIndex = 0
+        awaitingBreakStart = false
+    }
+    
+    func setQuickTimerDuration(_ duration: TimeInterval) {
+        quickTimerDuration = duration
+        UserDefaults.standard.set(duration, forKey: "quickTimerDuration")
+        
+        if timerMode == .quickTimer && state == .idle {
+            remainingTime = duration
+        }
+    }
+    
+    func adjustQuickTimerDuration(by seconds: TimeInterval) {
+        let newDuration = max(60, quickTimerDuration + seconds)
+        setQuickTimerDuration(newDuration)
     }
     
     // MARK: - Timer Controls
@@ -232,7 +303,6 @@ final class TimerManager {
         stopTimer()
         state = .idle
         
-        // Notify about cancellation with elapsed time
         if elapsed > 0 {
             onTimerCancel?(elapsed)
         }
@@ -241,6 +311,7 @@ final class TimerManager {
     }
     
     func skipToNextPhase() {
+        guard timerMode == .pomodoro else { return }
         stopTimer()
         transitionToNextPhase()
     }
@@ -259,50 +330,67 @@ final class TimerManager {
         }
         
         currentPreset = preset
-        customDuration = preset.duration
+        
+        if let encoded = try? JSONEncoder().encode(preset) {
+            UserDefaults.standard.set(encoded, forKey: "lastUsedPreset")
+        }
+        
+        timerMode = .pomodoro
         currentPhase = .focus
-        remainingTime = preset.duration
-        pausedRemainingTime = preset.duration
+        currentSessionIndex = 0
+        remainingTime = preset.focusDuration
+        pausedRemainingTime = preset.focusDuration
         state = .idle
         awaitingBreakStart = false
     }
     
-    func setCustomDuration(_ duration: TimeInterval) {
-        customDuration = duration
-        if state == .idle && currentPhase == .focus {
-            remainingTime = duration
-        }
-    }
-    
     // MARK: - Phase Management
     private func transitionToNextPhase() {
+        // Quick timer mode: just reset to same duration
+        if timerMode == .quickTimer {
+            remainingTime = quickTimerDuration
+            state = .idle
+            return
+        }
+        
+        // Pomodoro mode: cycle through focus/break phases
         switch currentPhase {
         case .focus:
-            completedFocusSessions += 1
+            currentSessionIndex += 1
             
-            // Determine break type
-            if completedFocusSessions >= sessionsUntilLongBreak {
-                currentPhase = .longBreak
-                completedFocusSessions = 0
-            } else {
-                currentPhase = .shortBreak
+            // Check if all sessions complete
+            if currentSessionIndex >= currentPreset.numberOfSessions {
+                // Session complete - reset
+                currentPhase = .focus
+                currentSessionIndex = 0
+                remainingTime = currentPreset.focusDuration
+                state = .idle
+                awaitingBreakStart = false
+                return
             }
             
-            remainingTime = totalDuration
+            // More sessions remain - transition to break
+            currentPhase = .break
+            remainingTime = currentPreset.breakDuration
             state = .idle
             
-            // Auto-start break or wait for user
-            if autoStartBreak {
+            if autoStartBreaks {
                 start()
             } else {
                 awaitingBreakStart = true
             }
             
-        case .shortBreak, .longBreak:
+        case .break:
+            // After break: go back to focus
             currentPhase = .focus
-            remainingTime = currentPreset.duration > 0 ? currentPreset.duration : focusDuration
+            remainingTime = currentPreset.focusDuration
             state = .idle
-            awaitingBreakStart = false
+            
+            if autoStartFocus {
+                start()
+            } else {
+                awaitingBreakStart = false
+            }
         }
     }
     
@@ -310,13 +398,14 @@ final class TimerManager {
     private func startTimer() {
         stopTimer()
         
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.tick()
-            }
-        }
+        timer = Timer.scheduledTimer(
+            timeInterval: 0.1,
+            target: self,
+            selector: #selector(timerTick),
+            userInfo: nil,
+            repeats: true
+        )
         
-        // Use common run loop mode for menu bar updates
         if let timer = timer {
             RunLoop.main.add(timer, forMode: .common)
         }
@@ -325,6 +414,10 @@ final class TimerManager {
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+    }
+    
+    @objc private func timerTick() {
+        tick()
     }
     
     private func tick() {
@@ -345,20 +438,17 @@ final class TimerManager {
         state = .idle
         remainingTime = 0
         
-        // Only count focus sessions for stats
-        if currentPhase == .focus {
+        // Track session completion (focus sessions only, or quick timer)
+        if currentPhase == .focus || timerMode == .quickTimer {
             onTimerComplete?()
         }
         
-        // Send notification
         sendCompletionNotification()
         
-        // Play sound
         if soundEnabled {
             playCompletionSound()
         }
         
-        // Transition to next phase
         transitionToNextPhase()
     }
     
@@ -376,13 +466,18 @@ final class TimerManager {
         
         let content = UNMutableNotificationContent()
         
-        switch currentPhase {
-        case .focus:
-            content.title = "Focus Session Complete! 🎉"
-            content.body = "Great work! Time for a break."
-        case .shortBreak, .longBreak:
-            content.title = "Break's Over! 💪"
-            content.body = "Ready to focus again?"
+        if timerMode == .quickTimer {
+            content.title = "Timer Complete!"
+            content.body = "Your timer has finished."
+        } else {
+            switch currentPhase {
+            case .focus:
+                content.title = "Focus Session Complete!"
+                content.body = "Great work! Time for a break."
+            case .break:
+                content.title = "Break's Over!"
+                content.body = "Ready to focus again?"
+            }
         }
         
         content.sound = .default
@@ -402,39 +497,32 @@ final class TimerManager {
         let notificationCenter = workspace.notificationCenter
         
         notificationCenter.addObserver(
-            forName: NSWorkspace.willSleepNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleSleep()
-            }
-        }
+            self,
+            selector: #selector(handleSleep(_:)),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
         
         notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleWake()
-            }
-        }
+            self,
+            selector: #selector(handleWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
     
-    private func handleSleep() {
+    @objc private func handleSleep(_ notification: Notification) {
         guard state == .running else { return }
         sleepTime = Date()
         stopTimer()
     }
     
-    private func handleWake() {
+    @objc private func handleWake(_ notification: Notification) {
         guard let sleepTime = sleepTime, state == .running else { 
             self.sleepTime = nil
             return 
         }
         
-        // Calculate time elapsed during sleep
         let sleepDuration = Date().timeIntervalSince(sleepTime)
         remainingTime = max(0, remainingTime - sleepDuration)
         pausedRemainingTime = remainingTime
@@ -447,12 +535,5 @@ final class TimerManager {
         } else {
             startTimer()
         }
-    }
-}
-
-// MARK: - Helper Extension
-private extension Double {
-    func nonZeroOr(_ defaultValue: Double) -> Double {
-        return self > 0 ? self : defaultValue
     }
 }

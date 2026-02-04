@@ -87,8 +87,7 @@ struct TimerRingView: View {
     private var phaseColor: Color {
         switch phase {
         case .focus: return Theme.accentGlow
-        case .shortBreak: return Theme.breakAccent
-        case .longBreak: return Theme.restAccent
+        case .break: return Theme.breakAccent
         }
     }
 }
@@ -100,7 +99,7 @@ struct TimerRingView: View {
         
         VStack(spacing: 40) {
             TimerRingView(progress: 0.65, remainingTime: "12:30", isRunning: true, phase: .focus)
-            TimerRingView(progress: 0.3, remainingTime: "03:30", isRunning: true, phase: .shortBreak)
+            TimerRingView(progress: 0.3, remainingTime: "03:30", isRunning: true, phase: .break)
         }
     }
     .preferredColorScheme(.dark)
