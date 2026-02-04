@@ -110,8 +110,15 @@ struct TimerPreset: Identifiable, Codable, Equatable {
 
 // MARK: - Default Presets
 extension TimerPreset {
+    /// Stable UUIDs for default presets
+    private static let classicPomodoroID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    private static let deepWorkID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    private static let studySprintID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+    private static let marathonID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    
     /// Classic Pomodoro: 25m focus, 5m break, 4 sessions
     static let classicPomodoro = TimerPreset(
+        id: classicPomodoroID,
         name: "Classic",
         icon: .focus,
         isDefault: true,
@@ -122,6 +129,7 @@ extension TimerPreset {
     
     /// Deep Work: 50m focus, 10m break, 4 sessions
     static let deepWork = TimerPreset(
+        id: deepWorkID,
         name: "Deep Work",
         icon: .brain,
         isDefault: true,
@@ -132,6 +140,7 @@ extension TimerPreset {
     
     /// Study Sprint: 45m focus, 15m break, 3 sessions
     static let studySprint = TimerPreset(
+        id: studySprintID,
         name: "Study Sprint",
         icon: .graduationcap,
         isDefault: true,
@@ -142,6 +151,7 @@ extension TimerPreset {
     
     /// Marathon: 90m focus, 20m break, 3 sessions
     static let marathon = TimerPreset(
+        id: marathonID,
         name: "Marathon",
         icon: .flame,
         isDefault: true,
@@ -203,7 +213,7 @@ final class PresetStore {
     }
     
     func resetDefaultPreset(_ preset: TimerPreset) {
-        if let original = TimerPreset.allDefaults.first(where: { $0.name == preset.name }),
+        if let original = TimerPreset.allDefaults.first(where: { $0.id == preset.id }),
            let index = defaultPresets.firstIndex(where: { $0.id == preset.id }) {
             defaultPresets[index] = original
             savePresets()
