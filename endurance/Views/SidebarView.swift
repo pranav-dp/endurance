@@ -235,18 +235,20 @@ struct PresetCard: View {
                     }
                     .buttonStyle(.plain)
                     
-                    // Delete button for all presets
-                    Button(action: { onDelete?() }) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 20, height: 20)
-                            .background(
-                                Circle()
-                                    .fill(Color.red.opacity(0.8))
-                            )
+                    // Delete button only for non-default presets
+                    if !preset.isDefault {
+                        Button(action: { onDelete?() }) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 20)
+                                .background(
+                                    Circle()
+                                        .fill(Color.red.opacity(0.8))
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(6)
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
