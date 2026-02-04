@@ -468,7 +468,6 @@ struct QuickTimerDurationPicker: View {
 }
 
 // MARK: - Quick Timer Input View
-// MARK: - Quick Timer Input View
 struct QuickTimerInputView: View {
     @Binding var duration: TimeInterval
     let color: Color
