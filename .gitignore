@@ -9,7 +9,7 @@ DerivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
-
+scripts
 # Swift Package Manager
 .build/
 Packages/
@@ -17,6 +17,9 @@ Package.pins
 Package.resolved
 *.xcworkspace
 
+
+# Scripts output
+icons/*.icns
 # CocoaPods (if ever used)
 Pods/
 Podfile.lock

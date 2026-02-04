@@ -75,14 +75,13 @@ final class SessionStore {
     var totalSessions: Int = 0
     var completionRate: Double = 0
     
-    // Daily Goal (persisted)
-    var dailyGoalMinutes: Int {
-        get { 
-            let val = UserDefaults.standard.integer(forKey: "dailyGoalMinutes")
-            return val > 0 ? val : 120  // Default 2 hours
-        }
-        set { 
-            UserDefaults.standard.set(newValue, forKey: "dailyGoalMinutes")
+    // Daily Goal (stored property for reactivity, persisted to UserDefaults)
+    var dailyGoalMinutes: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "dailyGoalMinutes")
+        return stored > 0 ? stored : 120 // Default 2 hours
+    }() {
+        didSet {
+            UserDefaults.standard.set(dailyGoalMinutes, forKey: "dailyGoalMinutes")
         }
     }
     

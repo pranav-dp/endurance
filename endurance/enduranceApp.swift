@@ -73,14 +73,27 @@ struct EnduranceApp: App {
     }
 }
 
-// MARK: - Menu Bar Label (with phase icon)
+// MARK: - Menu Bar Label (with preset/mode icon)
 struct MenuBarLabel: View {
     @Bindable var timerManager: TimerManager
+    
+    private var displayIcon: String {
+        // When in a break, show break icon
+        if timerManager.currentPhase != .focus && (timerManager.isRunning || timerManager.isPaused || timerManager.awaitingBreakStart) {
+            return timerManager.currentPhase.sfSymbol
+        }
+        // For focus or idle, show mode-appropriate icon
+        if timerManager.timerMode == .pomodoro {
+            return timerManager.currentPreset.icon.rawValue
+        } else {
+            return "stopwatch"
+        }
+    }
     
     var body: some View {
         if timerManager.isRunning || timerManager.isPaused {
             HStack(spacing: 4) {
-                Image(systemName: timerManager.currentPhase.sfSymbol)
+                Image(systemName: displayIcon)
                     .font(.system(size: 11))
                 Text(timerManager.menuBarTime)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
@@ -88,13 +101,14 @@ struct MenuBarLabel: View {
             }
         } else if timerManager.awaitingBreakStart {
             HStack(spacing: 4) {
-                Image(systemName: timerManager.currentPhase.sfSymbol)
+                Image(systemName: displayIcon)
                     .font(.system(size: 11))
                 Text("Break")
                     .font(.system(size: 12, weight: .medium))
             }
         } else {
-            Image(systemName: "stopwatch")
+            // Idle: show preset icon for Pomodoro, stopwatch for Quick Timer
+            Image(systemName: displayIcon)
                 .font(.system(size: 12))
         }
     }
@@ -180,13 +194,13 @@ struct MenuBarContentView: View {
             Divider()
             
             // Session counter
-            if timerManager.completedFocusSessions > 0 {
+            if timerManager.completedFocusSessions > 0 || timerManager.currentSessionIndex > 0 {
                 HStack {
-                    ForEach(0..<timerManager.sessionsUntilLongBreak, id: \.self) { index in
+                    ForEach(0..<timerManager.numberOfSessions, id: \.self) { index in
                         Image(systemName: index < timerManager.completedFocusSessions ? "circle.fill" : "circle")
                             .font(.system(size: 8))
                     }
-                    Text("\(timerManager.completedFocusSessions)/\(timerManager.sessionsUntilLongBreak) until long break")
+                    Text("\(timerManager.completedFocusSessions)/\(timerManager.numberOfSessions) sessions")
                         .font(.system(size: 11))
                 }
                 .padding(.vertical, 6)
@@ -196,12 +210,12 @@ struct MenuBarContentView: View {
             
             // Quick presets
             Menu("Quick Start") {
-                ForEach(presetStore.allPresets.prefix(6)) { preset in
+                ForEach(Array(presetStore.allPresets.prefix(6)), id: \.id) { preset in
                     Button(action: {
                         timerManager.setPreset(preset)
                         timerManager.start()
                     }) {
-                        Label("\(preset.name) - \(preset.formattedDuration)", systemImage: preset.icon.rawValue)
+                        Label("\(preset.name) • \(preset.summaryDescription)", systemImage: preset.icon.rawValue)
                     }
                 }
             }

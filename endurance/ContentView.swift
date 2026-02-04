@@ -16,9 +16,11 @@ struct ContentView: View {
     @Bindable var sessionStore: SessionStore
     @Bindable var presetStore: PresetStore
     
-    @State private var selectedTab: SidebarTab = .timer
+    @AppStorage("selectedTab") private var selectedTab: SidebarTab = .timer
     @State private var isSidebarVisible = true
     @State private var showingAddPreset = false
+    @State private var showingEditPreset = false
+    @State private var editingPreset: TimerPreset?
     @State private var currentSession: TimerSession?
     
     // Window dimensions (1.5x larger)
@@ -59,6 +61,8 @@ struct ContentView: View {
                     .glassButton(cornerRadius: 12)
             }
             .buttonStyle(.plain)
+            .focusable(false)
+            .buttonStyle(.plain)
             .contentShape(Circle())
             .padding(10)
         }
@@ -82,7 +86,22 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingAddPreset) {
-            AddPresetSheet(presetStore: presetStore, isPresented: $showingAddPreset)
+            PresetEditorSheet(
+                presetStore: presetStore,
+                isPresented: $showingAddPreset,
+                editingPreset: nil,
+                timerManager: timerManager
+            )
+        }
+        .sheet(isPresented: $showingEditPreset) {
+            if let preset = editingPreset {
+                PresetEditorSheet(
+                    presetStore: presetStore,
+                    isPresented: $showingEditPreset,
+                    editingPreset: preset,
+                    timerManager: timerManager
+                )
+            }
         }
         .onAppear {
             sessionStore.setModelContext(modelContext)
@@ -108,6 +127,8 @@ struct ContentView: View {
                 timerManager: timerManager,
                 presetStore: presetStore,
                 showingAddPreset: $showingAddPreset,
+                showingEditPreset: $showingEditPreset,
+                editingPreset: $editingPreset,
                 accentColor: presetColor
             )
         case .stats:
@@ -119,130 +140,232 @@ struct ContentView: View {
     
     // MARK: - Timer View
     private var timerView: some View {
-        VStack(spacing: 0) {
-            // Preset indicator (shows selected preset with appropriate color)
-            HStack {
-                Spacer()
-                
-                HStack(spacing: 6) {
-                    Image(systemName: timerManager.currentPreset.icon.rawValue)
-                        .font(.system(size: 11, weight: .medium))
-                    Text(timerManager.currentPreset.name)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(presetColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule()
-                        .fill(presetColor.opacity(0.15))
-                )
-                
-                Spacer()
-            }
-            .padding(.top, 16)
-            
-            // Session counter (only show for Pomodoro workflow)
-            if timerManager.completedFocusSessions > 0 {
-                HStack(spacing: 4) {
-                    ForEach(0..<timerManager.sessionsUntilLongBreak, id: \.self) { index in
-                        Circle()
-                            .fill(index < timerManager.completedFocusSessions ? presetColor : Theme.dimGray.opacity(0.4))
-                            .frame(width: 6, height: 6)
+        ZStack {
+            // Left side controls for Quick Timer (+5/-5 buttons)
+            if timerManager.timerMode == .quickTimer && timerManager.state == .idle {
+                VStack(spacing: 10) {
+                    Button(action: { timerManager.adjustQuickTimerDuration(by: 5 * 60) }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(presetColor)
+                            .frame(width: 32, height: 32)
+                            .glassButton(cornerRadius: 16)
                     }
+                    .buttonStyle(.plain)
+                    .help("+5 minutes")
+                    
+                    QuickTimerInputView(
+                        duration: Binding(
+                            get: { 5 * 60 }, // Dummy binding for display/input logic, specialized for increment
+                            set: { newValue in
+                                // When user types a value, WE SET THE TIMER DURATION directly
+                                timerManager.quickTimerDuration = newValue
+                            }
+                        ),
+                        color: Theme.accentGlow,
+                        isInputOnly: true
+                    )
+                    
+                    Button(action: { timerManager.adjustQuickTimerDuration(by: -5 * 60) }) {
+                        Image(systemName: "minus")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(presetColor)
+                            .frame(width: 32, height: 32)
+                            .glassButton(cornerRadius: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .help("-5 minutes")
                 }
-                .padding(.top, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 24)
             }
             
-            Spacer()
-            
-            // Timer Ring
-            TimerRingView(
-                progress: timerManager.progress,
-                remainingTime: timerManager.formattedTime,
-                isRunning: timerManager.isRunning,
-                phase: timerManager.currentPhase
-            )
-            
-            Spacer()
-            
-            // Controls or Start Break button
-            if timerManager.awaitingBreakStart {
-                VStack(spacing: 12) {
-                    Button(action: { timerManager.startBreak() }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: timerManager.currentPhase.sfSymbol)
-                            Text("Start \(timerManager.currentPhase == .longBreak ? "Long " : "")Break")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+            // Main content (centered)
+            VStack(spacing: 0) {
+                // Consistent header height for both modes
+                Group {
+                    if timerManager.timerMode == .pomodoro {
+                        HStack(spacing: 6) {
+                            Image(systemName: timerManager.currentPreset.icon.rawValue)
+                                .font(.system(size: 11, weight: .medium))
+                            Text(timerManager.currentPreset.name)
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
                         }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
+                        .foregroundStyle(presetColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
                         .background(
                             Capsule()
-                                .fill(phaseColor)
+                                .fill(presetColor.opacity(0.15))
+                        )
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "stopwatch")
+                                .font(.system(size: 11, weight: .medium))
+                            Text(formatDuration(timerManager.quickTimerDuration))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(presetColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(presetColor.opacity(0.15))
                         )
                     }
-                    .buttonStyle(.plain)
-                    
-                    Button(action: { 
-                        timerManager.currentPhase = .focus
-                        timerManager.awaitingBreakStart = false
-                        timerManager.remainingTime = timerManager.totalDuration
-                    }) {
-                        Text("Skip Break")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundStyle(Theme.dustGray)
-                    }
-                    .buttonStyle(.plain)
                 }
-                .padding(.bottom, 24)
-            } else {
-                HStack(spacing: 16) {
-                    ControlsView(timerManager: timerManager, accentColor: presetColor)
-                    
-                    // Skip button when in break and running
-                    if timerManager.isBreak && (timerManager.isRunning || timerManager.isPaused) {
-                        Button(action: { timerManager.skipToNextPhase() }) {
-                            Image(systemName: "forward.fill")
-                                .font(.system(size: 12, weight: .medium))
+                .frame(height: 30) // Fixed header height
+                .padding(.top, 20)
+                
+                Spacer()
+                
+                // Timer Ring
+                TimerRingView(
+                    progress: timerManager.progress,
+                    remainingTime: timerManager.formattedTime,
+                    isRunning: timerManager.isRunning,
+                    phase: timerManager.currentPhase
+                )
+                
+                // Session dots (below timer, only for Pomodoro mode) - fixed height placeholder
+                Group {
+                    if timerManager.timerMode == .pomodoro {
+                        HStack(spacing: 6) {
+                            ForEach(0..<timerManager.numberOfSessions, id: \.self) { index in
+                                Circle()
+                                    .fill(index < timerManager.completedFocusSessions ? presetColor : Theme.dimGray.opacity(0.4))
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                    } else {
+                        // Placeholder to maintain layout
+                        Color.clear
+                    }
+                }
+                .frame(height: 24) // Fixed height for dots area
+                .padding(.top, 8)
+                
+                Spacer()
+                
+                // Controls area with mode toggle button on left
+                ZStack {
+                // Mode toggle on left (absolute position)
+                if timerManager.state == .idle && !timerManager.awaitingBreakStart {
+                    HStack {
+                        Button(action: {
+                            if timerManager.timerMode == .pomodoro {
+                                timerManager.setTimerMode(.quickTimer)
+                            } else {
+                                timerManager.setTimerMode(.pomodoro)
+                            }
+                        }) {
+                            Image(systemName: timerManager.timerMode == .pomodoro ? "timer" : "stopwatch")
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(presetColor)
                                 .frame(width: 36, height: 36)
                                 .glassButton(cornerRadius: 18)
                         }
                         .buttonStyle(.plain)
                         .contentShape(Circle())
-                        .help("Skip to focus")
+                        .help(timerManager.timerMode == .pomodoro ? "Switch to Quick Timer" : "Switch to Pomodoro")
+                        .padding(.leading, 24)
+                        
+                        Spacer()
                     }
                 }
+                
+                // Centered controls
+                if timerManager.awaitingBreakStart {
+                    VStack(spacing: 12) {
+                        Button(action: { timerManager.startBreak() }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: timerManager.currentPhase.sfSymbol)
+                                Text("Start Break")
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 12)
+                            .background(
+                                Capsule()
+                                    .fill(phaseColor)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button(action: { 
+                            timerManager.currentPhase = .focus
+                            timerManager.awaitingBreakStart = false
+                            timerManager.remainingTime = timerManager.totalDuration
+                        }) {
+                            Text("Skip Break")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundStyle(Theme.dustGray)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    HStack(spacing: 16) {
+                        ControlsView(timerManager: timerManager, accentColor: presetColor)
+                        
+                        // Skip button when in break and running
+                        if timerManager.timerMode == .pomodoro && timerManager.isBreak && (timerManager.isRunning || timerManager.isPaused) {
+                            Button(action: { timerManager.skipToNextPhase() }) {
+                                Image(systemName: "forward.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(presetColor)
+                                    .frame(width: 36, height: 36)
+                                    .glassButton(cornerRadius: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Circle())
+                            .help("Skip to focus")
+                        }
+                    }
+                }
+                } // Close controls ZStack
                 .padding(.bottom, 24)
-            }
+            } // Close VStack (main content)
+        } // Close outer ZStack
+        // Spacebar shortcut for play/pause
+        .onKeyPress(.space) {
+            togglePlayPause()
+            return .handled
         }
     }
     
-    // MARK: - App Accent Color (changes based on phase OR preset)
-    // If timer is in break phase, return green. If preset is break/rest, return green. Otherwise blue.
+    // MARK: - Toggle Play/Pause (Spacebar shortcut)
+    private func togglePlayPause() {
+        if timerManager.awaitingBreakStart {
+            timerManager.startBreak()
+        } else if timerManager.isRunning {
+            timerManager.pause()
+        } else if timerManager.isPaused {
+            timerManager.resume()
+        } else {
+            timerManager.start()
+        }
+    }
+    
+    // MARK: - App Accent Color (changes based on phase)
     private var presetColor: Color {
-        // First check if we're in a break phase (Pomodoro auto-transition)
-        if timerManager.currentPhase != .focus {
-            return timerManager.currentPhase == .longBreak ? Theme.restAccent : Theme.breakAccent
+        return timerManager.currentPhase == .break ? Theme.breakAccent : Theme.accentGlow
+    }
+    
+    // MARK: - Format Duration (for Quick Timer header)
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let mins = Int(seconds) / 60
+        if mins >= 60 {
+            let hours = mins / 60
+            let remainingMins = mins % 60
+            return remainingMins > 0 ? "\(hours)h \(remainingMins)m" : "\(hours)h"
         }
-        
-        // Otherwise check if the preset is a break/rest type
-        let name = timerManager.currentPreset.name.lowercased()
-        if name.contains("break") || name.contains("rest") {
-            return Theme.breakAccent
-        }
-        return Theme.accentGlow
+        return "\(mins)m"
     }
     
     // MARK: - Phase Color (for timer ring)
     private var phaseColor: Color {
-        switch timerManager.currentPhase {
-        case .focus: return Theme.accentGlow
-        case .shortBreak: return Theme.breakAccent
-        case .longBreak: return Theme.restAccent
-        }
+        return timerManager.currentPhase == .break ? Theme.breakAccent : Theme.accentGlow
     }
     
     // MARK: - Background (Enhanced Transparency)
@@ -264,13 +387,16 @@ struct ContentView: View {
     
     // MARK: - Timer Callbacks
     private func setupTimerCallbacks() {
-        // Create session when timer starts (FIX for stats not working)
+        // Create session when timer starts
         timerManager.onTimerStart = { [self] in
-            // Only create sessions for focus periods
-            if timerManager.currentPhase == .focus {
+            // Track focus sessions and quick timer sessions
+            if timerManager.currentPhase == .focus || timerManager.timerMode == .quickTimer {
+                let presetName = timerManager.timerMode == .quickTimer 
+                    ? "Quick Timer" 
+                    : timerManager.currentPreset.name
                 currentSession = sessionStore.createSession(
                     duration: timerManager.totalDuration,
-                    presetName: timerManager.currentPreset.name
+                    presetName: presetName
                 )
             }
         }
@@ -291,6 +417,112 @@ struct ContentView: View {
                 currentSession = nil
             }
             sessionStore.refreshStats()
+        }
+    }
+}
+
+// MARK: - Quick Timer Duration Picker
+struct QuickTimerDurationPicker: View {
+    @Binding var duration: TimeInterval
+    var accentColor: Color = Theme.accentGlow
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private let quickDurations: [TimeInterval] = [
+        15 * 60,    // 15 min
+        30 * 60,    // 30 min
+        45 * 60,    // 45 min
+        60 * 60,    // 1 hr
+        90 * 60,    // 1.5 hr
+        120 * 60    // 2 hr
+    ]
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(quickDurations, id: \.self) { d in
+                Button(action: { duration = d }) {
+                    Text(formatDuration(d))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(duration == d ? .white : Theme.dustGray)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            duration == d
+                                ? Capsule().fill(accentColor.opacity(0.8))
+                                : Capsule().fill(Theme.glassBackground)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    private func formatDuration(_ d: TimeInterval) -> String {
+        let minutes = Int(d) / 60
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let mins = minutes % 60
+            return mins > 0 ? "\(hours)h\(mins)" : "\(hours)h"
+        }
+        return "\(minutes)m"
+    }
+}
+
+// MARK: - Quick Timer Input View
+// MARK: - Quick Timer Input View
+struct QuickTimerInputView: View {
+    @Binding var duration: TimeInterval
+    let color: Color
+    var isInputOnly: Bool = false // Kept for API compatibility, not used in logic
+    @State private var text = ""
+    @FocusState private var isFocused: Bool
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        TextField("", text: $text)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .multilineTextAlignment(.center)
+            .frame(width: 34)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(colorScheme == .dark ? .white : .black, lineWidth: 1)
+                    .background(Theme.glassBackground.clipShape(RoundedRectangle(cornerRadius: 6)))
+            )
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .onSubmit {
+                commitChange()
+            }
+            .onChange(of: isFocused) { _, focused in
+                if !focused {
+                    commitChange()
+                } else {
+                    // Select all text when focused
+                    text = String(Int(duration / 60))
+                }
+            }
+            .onAppear {
+                updateText()
+            }
+            .onChange(of: duration) { _, _ in
+                if !isFocused {
+                    updateText()
+                }
+            }
+    }
+    
+    private func updateText() {
+        text = String(Int(duration / 60))
+    }
+    
+    private func commitChange() {
+        if let mins = Int(text), mins > 0 {
+            duration = TimeInterval(mins * 60)
+        } else {
+            // Revert if invalid
+            updateText()
         }
     }
 }
