@@ -155,7 +155,7 @@ struct ContentView: View {
                     
                     QuickTimerInputView(
                         duration: Binding(
-                            get: { 5 * 60 }, // Dummy binding for display/input logic, specialized for increment
+                            get: { timerManager.quickTimerDuration },
                             set: { newValue in
                                 // When user types a value, WE SET THE TIMER DURATION directly
                                 timerManager.quickTimerDuration = newValue
